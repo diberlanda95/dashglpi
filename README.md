@@ -154,9 +154,9 @@ Este projeto está licenciado sob a licença **MIT**.
 
 ## 👤 Autor
 
-**Seu Nome**
-🐙 GitHub: [https://github.com/seu-usuario](https://github.com/seu-usuario)
-🔗 LinkedIn: [https://linkedin.com/in/seu-perfil](https://linkedin.com/in/seu-perfil)
+**Diogo Berlanda**
+🐙 GitHub: [https://github.com/seu-usuario](https://github.com/diberlanda95)
+🔗 LinkedIn: [https://linkedin.com/in/seu-perfil](https://www.linkedin.com/in/diogo-berlanda-8436b4132)
 
 ---
 
