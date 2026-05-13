@@ -405,9 +405,9 @@ async function loadTicketLists() {
                                 <span class="table-date">${escHtml(ticket.date)}</span>
                             </td>
                             <td style="text-align: right;">
-                                <button class="table-action">
-                                    <i class="fas fa-chevron-right"></i>
-                                </button>
+                                <a href="${DASHGLPI_ROOT}/../../front/ticket.form.php?id=${ticket.id}" target="_blank" class="table-action">
+                                    <i class="fas fa-external-link-alt"></i>
+                                </a>
                             </td>
                         </tr>
                     `).join('');
@@ -428,8 +428,8 @@ async function loadTicketLists() {
 
             fullBody.innerHTML = tickets.map(ticket => `
                         <tr>
-                            <td><strong>#${ticket.id}</strong></td>
-                            <td>${escHtml(ticket.name)}</td>
+                            <td><strong><a href="${DASHGLPI_ROOT}/../../front/ticket.form.php?id=${ticket.id}" target="_blank" style="color: inherit; text-decoration: none;">#${ticket.id}</a></strong></td>
+                            <td><a href="${DASHGLPI_ROOT}/../../front/ticket.form.php?id=${ticket.id}" target="_blank" style="color: inherit; text-decoration: none;">${escHtml(ticket.name)}</a></td>
                             <td>
                                 <span class="table-badge" style="background: ${getStatusBg(ticket.status)}; color: ${getStatusColor(ticket.status)}; border: none;">
                                     ${statusMap[ticket.status] || 'Outro'}
@@ -628,20 +628,20 @@ document.addEventListener('click', (e) => {
 // ==================== SLA MONITOR ====================
 function initSLAMonitor() {
     updateSLAData();
+    setInterval(updateSLAData, 60000); // Atualiza dados reais a cada minuto
     setInterval(updateSLACountdowns, 1000);
 }
 
-function updateSLAData() {
-    const slaItems = [
-        { id: 1, title: 'Problema de rede - Setor Financeiro', ticket: '#2234', deadline: new Date(Date.now() + 30 * 60000), status: 'critical' },
-        { id: 2, title: 'Instalação Office 365', ticket: '#2231', deadline: new Date(Date.now() + 120 * 60000), status: 'warning' },
-        { id: 3, title: 'Manutenção preventiva', ticket: '#2228', deadline: new Date(Date.now() + 480 * 60000), status: 'ok' },
-        { id: 4, title: 'Impressora offline', ticket: '#2225', deadline: new Date(Date.now() + 15 * 60000), status: 'critical' },
-        { id: 5, title: 'Novo usuário - Onboarding', ticket: '#2220', deadline: new Date(Date.now() + 300 * 60000), status: 'ok' }
-    ];
+async function updateSLAData() {
+    try {
+        const response = await fetch(PLUGIN_ROOT + '/ajax/dashboard.php?action=sla_data');
+        const data = await response.json();
 
-    renderSLAList(slaItems);
-    updateSLASummary(slaItems);
+        renderSLAList(data.items);
+        updateSLASummary(data.summary);
+    } catch (error) {
+        console.error('Error updating SLA data:', error);
+    }
 }
 
 function renderSLAList(items) {
@@ -658,7 +658,7 @@ function renderSLAList(items) {
                         <div class="sla-subtitle">Chamado ${item.ticket}</div>
                     </div>
                     <div class="sla-countdown">
-                        <div class="sla-time ${item.status}" data-deadline="${item.deadline.getTime()}">--:--</div>
+                        <div class="sla-time ${item.status}" data-deadline="${item.deadline}">--:--</div>
                         <div class="sla-label">Restante</div>
                     </div>
                 </div>
@@ -684,25 +684,35 @@ function updateSLACountdowns() {
     });
 }
 
-function updateSLASummary(items) {
-    const critical = items.filter(i => i.status === 'critical').length;
-    const warning = items.filter(i => i.status === 'warning').length;
-    const ok = items.filter(i => i.status === 'ok').length;
-
-    setVal('slaCritical', critical);
-    setVal('slaWarning', warning);
-    setVal('slaOk', ok);
+function updateSLASummary(summary) {
+    setVal('slaCritical', summary.critical);
+    setVal('slaWarning', summary.warning);
+    setVal('slaOk', summary.ok);
 }
 
 // ==================== NOTIFICATIONS ====================
 function initNotifications() {
-    const initialNotifications = [
-        { id: 1, type: 'danger', text: 'SLA crítico: Chamado #2234 vence em 30 minutos', time: 'Agora', unread: true },
-        { id: 2, type: 'success', text: 'Chamado #2220 foi resolvido', time: '5 min atrás', unread: true },
-        { id: 3, type: 'info', text: 'Novo chamado #2235 atribuído a você', time: '15 min atrás', unread: true }
-    ];
+    updateNotifications();
+    setInterval(updateNotifications, 300000); // Atualiza a cada 5 minutos
+}
 
-    renderNotifications(initialNotifications);
+async function updateNotifications() {
+    try {
+        const response = await fetch(PLUGIN_ROOT + '/ajax/dashboard.php?action=get_notifications');
+        const notifications = await response.json();
+
+        renderNotifications(notifications);
+
+        const badge = document.getElementById('notificationBadge');
+        if (notifications.length > 0) {
+            badge.textContent = notifications.length;
+            badge.style.display = 'flex';
+        } else {
+            badge.style.display = 'none';
+        }
+    } catch (error) {
+        console.error('Error updating notifications:', error);
+    }
 }
 
 function renderNotifications(notifications) {

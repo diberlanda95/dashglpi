@@ -110,7 +110,7 @@ if (empty($userInitials)) {
 
     <div class="notification-panel" id="notificationPanel">
         <div class="notification-header">
-            <h3 class="notification-title">Notificações <span style="padding: 2px 6px; background: var(--warning); color: #000; border-radius: 4px; font-size: 0.6rem; font-weight: 700; vertical-align: middle;">DEMO</span></h3>
+            <h3 class="notification-title">Notificações</h3>
             <button class="notification-clear" onclick="clearNotifications()">Limpar Tudo</button>
         </div>
         <div class="notification-list" id="notificationList">
@@ -144,7 +144,7 @@ if (empty($userInitials)) {
                     </button>
                     <button class="icon-btn" onclick="toggleNotifications()" title="Notificações">
                         <i class="fas fa-bell"></i>
-                        <span class="badge-notification" id="notificationBadge">3</span>
+                        <span class="badge-notification" id="notificationBadge" style="display: none;">0</span>
                     </button>
                     <button class="icon-btn" onclick="requestNotificationPermission()" title="Ativar Notificações Desktop">
                         <i class="fas fa-desktop"></i>
@@ -288,7 +288,6 @@ if (empty($userInitials)) {
                     <div class="page-subtitle">
                         <i class="fas fa-stopwatch"></i>
                         <span>Acompanhamento em tempo real</span>
-                        <span style="margin-left: 12px; padding: 2px 8px; background: var(--warning); color: #000; border-radius: 4px; font-size: 0.7rem; font-weight: 700;">DEMONSTRAÇÃO</span>
                     </div>
                 </div>
             </header>

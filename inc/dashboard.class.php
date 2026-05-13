@@ -193,7 +193,7 @@ class PluginDashglpiDashboard
                 new QueryExpression("TRIM(CONCAT(IFNULL(`u`.`firstname`, `u`.`name`), ' ', IFNULL(`u`.`realname`, ''))) AS `name`"),
                 new QueryExpression("UPPER(CONCAT(LEFT(IFNULL(`u`.`firstname`, `u`.`name`), 1), LEFT(IFNULL(`u`.`realname`, ''), 1))) AS `avatar`"),
                 QueryFunction::count('t.id', false, 'tickets'),
-                new QueryExpression('COUNT(`t`.`id`) * 10 AS `points`'),
+                new QueryExpression('SUM(CASE WHEN t.time_to_resolve >= t.solvedate THEN 15 ELSE 10 END) AS `points`'),
             ],
             'FROM'  => 'glpi_tickets AS t',
             'INNER JOIN' => [
@@ -215,8 +215,7 @@ class PluginDashglpiDashboard
                 't.status'     => [5, 6],
                 't.is_deleted' => 0,
                 ['NOT' => ['t.solvedate' => null]],
-                new QueryExpression('MONTH(`t`.`solvedate`) = MONTH(CURRENT_DATE())'),
-                new QueryExpression('YEAR(`t`.`solvedate`) = YEAR(CURRENT_DATE())'),
+                new QueryExpression('`t`.`solvedate` >= DATE_FORMAT(NOW(), "%Y-%m-01")'),
             ], $entityCriteria),
             'GROUPBY' => ['u.id', 'u.firstname', 'u.name', 'u.realname'],
             'ORDER'   => ['points DESC'],
@@ -284,6 +283,157 @@ class PluginDashglpiDashboard
         }
 
         return $tickets;
+    }
+
+    /**
+     * Retorna dados de SLA reais
+     */
+    public static function getSLAData(): array
+    {
+        global $DB;
+
+        $entityCriteria = getEntitiesRestrictCriteria('glpi_tickets');
+
+        // Categorias de SLA
+        $critical = self::countTickets($DB, $entityCriteria, [
+            'NOT' => ['status' => [5, 6]],
+            ['NOT' => ['time_to_resolve' => null]],
+            new QueryExpression('`glpi_tickets`.`time_to_resolve` <= NOW()'),
+        ]);
+
+        $warning = self::countTickets($DB, $entityCriteria, [
+            'NOT' => ['status' => [5, 6]],
+            ['NOT' => ['time_to_resolve' => null]],
+            new QueryExpression('`glpi_tickets`.`time_to_resolve` > NOW()'),
+            new QueryExpression('`glpi_tickets`.`time_to_resolve` <= NOW() + INTERVAL 4 HOUR'),
+        ]);
+
+        $ok = self::countTickets($DB, $entityCriteria, [
+            'NOT' => ['status' => [5, 6]],
+            ['NOT' => ['time_to_resolve' => null]],
+            new QueryExpression('`glpi_tickets`.`time_to_resolve` > NOW() + INTERVAL 4 HOUR'),
+        ]);
+
+        // Lista de próximos ao vencimento
+        $iterator = $DB->request([
+            'SELECT' => ['id', 'name', 'time_to_resolve'],
+            'FROM'   => 'glpi_tickets',
+            'WHERE'  => array_merge([
+                'NOT' => ['status' => [5, 6]],
+                ['NOT' => ['time_to_resolve' => null]],
+                new QueryExpression('`glpi_tickets`.`time_to_resolve` > NOW()'),
+            ], $entityCriteria),
+            'ORDER' => ['time_to_resolve ASC'],
+            'LIMIT' => 10,
+        ]);
+
+        $items = [];
+        foreach ($iterator as $row) {
+            $diff = strtotime($row['time_to_resolve']) - time();
+            $status = 'ok';
+            if ($diff < 3600) {
+                $status = 'critical';
+            } elseif ($diff < 14400) {
+                $status = 'warning';
+            }
+
+            $items[] = [
+                'id'       => $row['id'],
+                'title'    => $row['name'],
+                'ticket'   => '#' . $row['id'],
+                'deadline' => strtotime($row['time_to_resolve']) * 1000, // JS timestamp
+                'status'   => $status
+            ];
+        }
+
+        return [
+            'summary' => [
+                'critical' => (int) $critical,
+                'warning'  => (int) $warning,
+                'ok'       => (int) $ok,
+            ],
+            'items' => $items
+        ];
+    }
+
+    /**
+     * Retorna notificações recentes para o usuário logado
+     */
+    public static function getNotifications(): array
+    {
+        global $DB;
+
+        $userId = Session::getLoginUserID();
+        $notifications = [];
+
+        // 1. Novos chamados atribuídos ao usuário
+        $iterator = $DB->request([
+            'SELECT' => ['t.id', 't.name', 't.date_mod'],
+            'FROM'   => 'glpi_tickets AS t',
+            'INNER JOIN' => [
+                'glpi_tickets_users AS tu' => [
+                    'ON' => ['tu' => 'tickets_id', 't' => 'id']
+                ]
+            ],
+            'WHERE' => [
+                'tu.users_id' => $userId,
+                'tu.type'     => 2, // Atribuído a
+                't.is_deleted' => 0,
+                't.status'     => [1, 2, 3, 4]
+            ],
+            'ORDER' => ['t.date_mod DESC'],
+            'LIMIT' => 5
+        ]);
+
+        foreach ($iterator as $row) {
+            $notifications[] = [
+                'id'    => 'ticket_' . $row['id'],
+                'type'  => 'info',
+                'text'  => 'Chamado #' . $row['id'] . ' atribuído a você: ' . $row['name'],
+                'time'  => self::getRelativeTime($row['date_mod']),
+                'unread' => true
+            ];
+        }
+
+        // 2. Chamados que venceram SLA recentemente
+        $iterator = $DB->request([
+            'SELECT' => ['id', 'name', 'time_to_resolve'],
+            'FROM'   => 'glpi_tickets',
+            'WHERE'  => [
+                'is_deleted' => 0,
+                'status'     => [1, 2, 3, 4],
+                new QueryExpression('`time_to_resolve` <= NOW()'),
+                new QueryExpression('`time_to_resolve` >= DATE_SUB(NOW(), INTERVAL 24 HOUR)')
+            ],
+            'ORDER' => ['time_to_resolve DESC'],
+            'LIMIT' => 5
+        ]);
+
+        foreach ($iterator as $row) {
+            $notifications[] = [
+                'id'    => 'sla_' . $row['id'],
+                'type'  => 'danger',
+                'text'  => 'SLA VENCIDO: Chamado #' . $row['id'] . ' - ' . $row['name'],
+                'time'  => self::getRelativeTime($row['time_to_resolve']),
+                'unread' => true
+            ];
+        }
+
+        // Ordenar por tempo (mais recentes primeiro - embora o relative time dificulte, poderiamos retornar timestamp)
+        // Por simplificação, vamos apenas retornar o que temos.
+
+        return $notifications;
+    }
+
+    private static function getRelativeTime($datetime): string
+    {
+        $timestamp = strtotime($datetime);
+        $diff = time() - $timestamp;
+
+        if ($diff < 60) return 'Agora';
+        if ($diff < 3600) return floor($diff / 60) . ' min atrás';
+        if ($diff < 86400) return floor($diff / 3600) . ' h atrás';
+        return floor($diff / 86400) . ' dias atrás';
     }
 
     /**
@@ -400,7 +550,7 @@ class PluginDashglpiDashboard
         $ramIterator = $DB->request([
             'SELECT'  => [
                 'items_id',
-                QueryFunction::sum('size', false, 'total'),
+                'size',
             ],
             'FROM'    => 'glpi_items_devicememories',
             'WHERE'   => [
@@ -408,10 +558,14 @@ class PluginDashglpiDashboard
                 'itemtype'   => 'Computer',
                 'is_deleted' => 0,
             ],
-            'GROUPBY' => ['items_id'],
         ]);
+
         foreach ($ramIterator as $row) {
-            $ramMap[(int) $row['items_id']] = (int) ($row['total'] ?? 0);
+            $itemId = (int) $row['items_id'];
+            if (!isset($ramMap[$itemId])) {
+                $ramMap[$itemId] = 0;
+            }
+            $ramMap[$itemId] += (int) ($row['size'] ?? 0);
         }
 
         // Bulk: Disk
@@ -419,8 +573,8 @@ class PluginDashglpiDashboard
         $diskIterator = $DB->request([
             'SELECT'  => [
                 'items_id',
-                QueryFunction::sum('totalsize', false, 'disk_total'),
-                QueryFunction::sum('freesize', false, 'disk_free'),
+                'totalsize',
+                'freesize'
             ],
             'FROM'    => 'glpi_items_disks',
             'WHERE'   => [
@@ -428,13 +582,15 @@ class PluginDashglpiDashboard
                 'itemtype'   => 'Computer',
                 'is_deleted' => 0,
             ],
-            'GROUPBY' => ['items_id'],
         ]);
+
         foreach ($diskIterator as $row) {
-            $diskMap[(int) $row['items_id']] = [
-                'total' => (int) ($row['disk_total'] ?? 0),
-                'free'  => (int) ($row['disk_free'] ?? 0),
-            ];
+            $itemId = (int) $row['items_id'];
+            if (!isset($diskMap[$itemId])) {
+                $diskMap[$itemId] = ['total' => 0, 'free' => 0];
+            }
+            $diskMap[$itemId]['total'] += (int) ($row['totalsize'] ?? 0);
+            $diskMap[$itemId]['free']  += (int) ($row['freesize'] ?? 0);
         }
 
         // Montar resultado final

@@ -39,6 +39,14 @@ try {
             echo json_encode(PluginDashglpiDashboard::getAssetsList());
             break;
 
+        case 'sla_data':
+            echo json_encode(PluginDashglpiDashboard::getSLAData());
+            break;
+
+        case 'get_notifications':
+            echo json_encode(PluginDashglpiDashboard::getNotifications());
+            break;
+
         default:
             http_response_code(400);
             echo json_encode(['error' => 'Ação inválida.']);
